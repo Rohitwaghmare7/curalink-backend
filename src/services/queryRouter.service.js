@@ -13,7 +13,7 @@ const MAX_PER_SOURCE = parseInt(process.env.MAX_PAPERS_PER_SOURCE) || 50;
  * If not, triggers a live fetch from PubMed + OpenAlex + ClinicalTrials, then re-queries.
  * Uses expanded query (additionalQuery AND disease) for API searches.
  */
-const routeQuery = async (query, condition, existingEmbedding = null, disease = null) => {
+const routeQuery = async (query, condition, existingEmbedding = null, disease = null, skipLiveFetch = false) => {
   // Build expanded search term: "deep brain stimulation AND parkinson's disease"
   const expandedQuery = buildExpandedQuery(query, disease || condition);
   const searchTerm = expandedQuery || condition || query;
@@ -32,17 +32,17 @@ const routeQuery = async (query, condition, existingEmbedding = null, disease = 
   const conditionKeyword = (disease || condition || '').toLowerCase();
   const relevantToCondition = conditionKeyword
     ? existing.filter((c) => {
-        const text = `${c.title || ''} ${c.text || ''}`.toLowerCase();
-        return text.includes(conditionKeyword) ||
-               // Also accept if the chunk's own condition field matches
-               (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
-      })
+      const text = `${c.title || ''} ${c.text || ''}`.toLowerCase();
+      return text.includes(conditionKeyword) ||
+        // Also accept if the chunk's own condition field matches
+        (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
+    })
     : existing;
 
   const relevantCount = relevantToCondition.length;
   logger.info(`[QueryRouter] ${relevantCount}/${existing.length} chunks match condition "${conditionKeyword}"`);
 
-  if (relevantCount >= FRESH_FETCH_THRESHOLD) {
+  if (relevantCount >= FRESH_FETCH_THRESHOLD || skipLiveFetch) {
     return { freshFetch: false, fetchedFrom: [], embedding, expandedQuery: searchTerm };
   }
 

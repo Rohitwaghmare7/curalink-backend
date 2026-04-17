@@ -55,22 +55,25 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
     }
   }
 
-  // Step 3: Route query — check cache, live fetch if needed using expanded query
-  const { freshFetch, fetchedFrom, embedding: queryEmbedding, expandedQuery } = await routeQuery(query, contextCondition, null, disease);
-
-  // Step 4: Vector search (after potential live fetch)
+  // Step 3: Extract source filter from options
   // Map frontend source label → Pinecone metadata source value
   const SOURCE_MAP = {
-    'pubmed':        'pubmed',
-    'openalex':      'openalex',
-    'clinicaltrials':'clinicaltrials',
+    'pubmed': 'pubmed',
+    'openalex': 'openalex',
+    'clinicaltrials': 'clinicaltrials',
     'uploaded pdfs': 'pdf',
-    'pdf':           'pdf',
+    'pdf': 'pdf',
   };
   const sourceFilter = options.sourceFilter
     ? SOURCE_MAP[options.sourceFilter.toLowerCase()] || null
     : null;
 
+  const isPdfOnly = sourceFilter === 'pdf';
+
+  // Step 4: Route query — check cache, live fetch if needed using expanded query (skip web fetch for PDF sources)
+  const { freshFetch, fetchedFrom, embedding: queryEmbedding, expandedQuery } = await routeQuery(query, contextCondition, null, disease, isPdfOnly);
+
+  // Step 5: Vector search (after potential live fetch)
   const rawChunks = sourceFilter
     ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.0, filterField: 'source' })
     : await search(queryEmbedding, { topK: 30, minScore: 0.0 });
