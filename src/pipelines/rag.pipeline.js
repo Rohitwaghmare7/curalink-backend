@@ -55,8 +55,7 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
     }
   }
 
-  // Step 3: Extract source filter from options
-  // Map frontend source label → Pinecone metadata source value
+  logger.info(`[RAG] Incoming sourceFilter: "${options.sourceFilter}"`);
   const SOURCE_MAP = {
     'pubmed': 'pubmed',
     'openalex': 'openalex',
@@ -65,10 +64,11 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
     'pdf': 'pdf',
   };
   const sourceFilter = options.sourceFilter
-    ? SOURCE_MAP[options.sourceFilter.toLowerCase()] || null
+    ? SOURCE_MAP[options.sourceFilter.toLowerCase().trim()] || null
     : null;
 
   const isPdfOnly = sourceFilter === 'pdf';
+  logger.info(`[RAG] Resolved sourceFilter: "${sourceFilter}" | isPdfOnly: ${isPdfOnly}`);
 
   // Step 4: Route query — check cache, live fetch if needed using expanded query (skip web fetch for PDF sources)
   const { freshFetch, fetchedFrom, embedding: queryEmbedding, expandedQuery } = await routeQuery(query, contextCondition, null, disease, isPdfOnly);

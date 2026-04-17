@@ -27,10 +27,16 @@ const mapMatch = (m) => ({
 });
 
 const search = async (queryEmbedding, options = {}) => {
-  const { topK = TOP_K, minScore = MIN_SCORE } = options;
+  const topK = options.topK || TOP_K;
+  const minScore = typeof options.minScore === 'number' ? options.minScore : MIN_SCORE;
   try {
     const index = getPineconeIndex();
     const result = await index.query({ vector: queryEmbedding, topK, includeMetadata: true });
+
+    if (result.matches && result.matches.length > 0) {
+      logger.info(`[Retrieval] Raw top score: ${result.matches[0].score}`);
+    }
+
     if (!result.matches || result.matches.length === 0) return [];
     return result.matches.filter((m) => m.score >= minScore).map(mapMatch);
   } catch (err) {
@@ -40,7 +46,9 @@ const search = async (queryEmbedding, options = {}) => {
 };
 
 const filteredSearch = async (queryEmbedding, filterValue, options = {}) => {
-  const { topK = TOP_K, minScore = MIN_SCORE, filterField = 'category' } = options;
+  const topK = options.topK || TOP_K;
+  const minScore = typeof options.minScore === 'number' ? options.minScore : MIN_SCORE;
+  const filterField = options.filterField || 'category';
   try {
     const index = getPineconeIndex();
     const result = await index.query({
@@ -49,6 +57,11 @@ const filteredSearch = async (queryEmbedding, filterValue, options = {}) => {
       includeMetadata: true,
       filter: { [filterField]: { $eq: filterValue } },
     });
+
+    if (result.matches && result.matches.length > 0) {
+      logger.info(`[Retrieval] Filtered raw top score: ${result.matches[0].score}`);
+    }
+
     if (!result.matches || result.matches.length === 0) return [];
     return result.matches.filter((m) => m.score >= minScore).map(mapMatch);
   } catch (err) {
