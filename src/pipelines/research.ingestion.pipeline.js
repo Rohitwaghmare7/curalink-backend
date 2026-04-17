@@ -10,7 +10,7 @@ const logger = require("../utils/logger");
 const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE_TOKENS) || 500;
 const CHUNK_OVERLAP = parseInt(process.env.CHUNK_OVERLAP_TOKENS) || 50;
 const PINECONE_BATCH = 100;
-const INTER_PAPER_DELAY_MS = 300; // reduced from 1500ms — Gemini free tier allows ~60 req/min
+const INTER_PAPER_DELAY_MS = 0; // removed entirely — no external API rate limits with local HuggingFace
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
