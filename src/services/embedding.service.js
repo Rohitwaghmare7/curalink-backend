@@ -1,35 +1,28 @@
-const { GoogleGenAI } = require("@google/genai");
+const { pipeline, env } = require("@xenova/transformers");
 const logger = require("../utils/logger");
 
-const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || "text-embedding-004";
+// Ensure it downloads from HuggingFace and doesn't get confused by browser caches
+env.useBrowserCache = false;
+
+const MODEL_NAME = process.env.HF_EMBEDDING_MODEL || "Xenova/all-MiniLM-L6-v2";
 const BATCH_SIZE = 20;
-const MAX_RETRIES = 3;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let extractorInstance = null;
 
-let genAI = null;
-const getGenAI = () => {
-  if (!genAI) genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  return genAI;
+const getExtractor = async () => {
+  if (!extractorInstance) {
+    logger.info(`Loading local embedding model: ${MODEL_NAME}`);
+    extractorInstance = await pipeline("feature-extraction", MODEL_NAME);
+  }
+  return extractorInstance;
 };
 
-const generateEmbedding = async (text, retries = 0) => {
+const generateEmbedding = async (text) => {
   try {
-    const ai = getGenAI();
-    const result = await ai.models.embedContent({
-      model: EMBEDDING_MODEL,
-      contents: text,
-      config: { outputDimensionality: 768 },
-    });
-    return result.embeddings[0].values;
+    const extractor = await getExtractor();
+    const output = await extractor(text, { pooling: "mean", normalize: true });
+    return Array.from(output.data);
   } catch (err) {
-    const isRetryable = err.status === 429 || err.status === 500 || err.status === 502 || err.status === 503;
-    if (isRetryable && retries < MAX_RETRIES) {
-      const delay = Math.min(5000 * Math.pow(2, retries), 30000); // longer backoff for embeddings
-      logger.warn(`Embedding retry ${retries + 1}/${MAX_RETRIES} after ${delay}ms — ${err.message}`);
-      await sleep(delay);
-      return generateEmbedding(text, retries + 1);
-    }
     logger.error(`Embedding failed: ${err.message}`);
     throw err;
   }
