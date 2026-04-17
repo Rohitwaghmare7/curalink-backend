@@ -41,6 +41,7 @@ const runIngestionPipeline = async ({ fileBuffer, originalName, category = "gene
       metadata: {
         documentId,
         sourceFile: originalName,
+        source: "pdf",
         category,
         chunkIndex: chunk.chunkIndex,
         text: chunk.text,
