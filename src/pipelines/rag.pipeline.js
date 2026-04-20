@@ -42,14 +42,17 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   const history = await getHistory(activeSessionId);
 
   // Step 2c: If no condition found in current query, extract from previous conversation turns
-  // This ensures follow-up queries like "What are the side effects?" stay in context
+  // Enhanced: Only inherit if the intent suggests a follow-up or query is short/ambiguous
   let contextCondition = condition;
-  if (!contextCondition && history.length > 0) {
+  const isFollowUpIntent = ["treatment", "clinical_trials", "researchers", "research"].includes(intent);
+  const isShortQuery = query.split(" ").length <= 4;
+
+  if (!contextCondition && history.length > 0 && (isFollowUpIntent || isShortQuery)) {
     for (const msg of [...history].reverse()) {
       const { condition: prevCondition } = extractQueryIntent(msg.content);
       if (prevCondition) {
         contextCondition = prevCondition;
-        logger.info(`[RAG] No condition in query — using context condition from history: "${contextCondition}"`);
+        logger.info(`[RAG] No condition in query — using context condition from history: "${contextCondition}" (Reason: ${isFollowUpIntent ? "follow-up intent" : "short query"})`);
         break;
       }
     }
@@ -74,9 +77,10 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   const { freshFetch, fetchedFrom, embedding: queryEmbedding, expandedQuery } = await routeQuery(query, contextCondition, null, disease, isPdfOnly);
 
   // Step 5: Vector search (after potential live fetch)
+  // minScore: 0.3 prevents irrelevant chunks from polluting the background knowledge
   const rawChunks = sourceFilter
-    ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.0, filterField: 'source' })
-    : await search(queryEmbedding, { topK: 30, minScore: 0.0 });
+    ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.3, filterField: 'source' })
+    : await search(queryEmbedding, { topK: 30, minScore: 0.3 });
 
   logger.info(`[RAG] Retrieved ${rawChunks.length} chunks | freshFetch: ${freshFetch}`);
 

@@ -11,7 +11,7 @@ RAG-powered backend that retrieves real medical research from PubMed, OpenAlex, 
 | Runtime | Node.js 18+ |
 | Framework | Express.js |
 | LLM | LLaMA 3.3 70B via Groq (open-source, free) |
-| Embeddings | Google gemini-embedding-001 (768-dim) |
+| Embeddings | Xenova/all-MiniLM-L6-v2 (384-dim) |
 | Vector DB | Pinecone (cosine similarity) |
 | Metadata DB | MongoDB Atlas |
 | Data Sources | PubMed, OpenAlex, ClinicalTrials.gov |
@@ -38,7 +38,7 @@ User Query
   · If < 3 results → Live fetch from PubMed + OpenAlex + ClinicalTrials
     │
     ▼
-[Embedding] → gemini-embedding-001 (768-dim)
+[Embedding] → Xenova/all-MiniLM-L6-v2 (384-dim)
     │
     ▼
 [Pinecone Vector Search] → top-k retrieval
@@ -95,7 +95,7 @@ cp .env.example .env
 Fill in:
 - `MONGODB_URI` — MongoDB Atlas connection string
 - `GEMINI_API_KEY` — Google AI Studio (aistudio.google.com)
-- `PINECONE_API_KEY` — Pinecone (pinecone.io) — index: `health-copilot`, dims: 768, metric: cosine
+- `PINECONE_API_KEY` — Pinecone (pinecone.io) — index: `health-copilot`, dims: 384, metric: cosine
 - `GROQ_API_KEY` — Groq (console.groq.com) — free, no credit card
 
 ### 3. Pre-load demo data

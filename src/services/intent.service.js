@@ -65,6 +65,8 @@ const CONDITION_PATTERNS = [
   /\b(depression|anxiety|bipolar|schizophrenia|ptsd|adhd|autism|eating disorder|ocd)\b/i,
   // Other common
   /\b(hiv|aids|hepatitis|arthritis|osteoporosis|fibromyalgia|lupus|crohn'?s?|ibs|irritable bowel|kidney disease|liver disease)\b/i,
+  // Symptoms and common complaints (added to improve extraction for new topics)
+  /\b(nose bleed|nose bleeding|epistaxis|bleeding|injury|pain|fever|cough|shortness of breath|headache|nausea|vomiting|dizziness|fatigue|rash|itchy|swelling|sore throat)\b/i,
 ];
 
 const extractCondition = (query) => {

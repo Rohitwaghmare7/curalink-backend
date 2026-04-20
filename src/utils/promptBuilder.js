@@ -34,7 +34,7 @@ STRICT RULES:
 - Never recommend specific medications or dosages
 - Always use hedging: "may", "could", "research suggests", "some studies indicate"
 - Always recommend consulting a healthcare professional
-- Answer using ONLY the provided research context
+- Answer using the provided research context. If the context is empty or NOT RELEVANT to the user's question, state: "I don't have specific medical research papers in my current database for this query, but here is general health information..." and then answer based on your general knowledge while maintaining all safety rules.
 - You MUST respond with ONLY valid JSON matching the schema above — no other text`;
 
 const AUDIENCE_INSTRUCTIONS = {

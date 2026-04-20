@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "preload-demo": "node scripts/preload-demo.js"
+    "preload-demo": "node scripts/preload-demo.js",
+    "populate-kb": "node scripts/populate-kb.js"
   },
   "keywords": [],
   "author": "",
