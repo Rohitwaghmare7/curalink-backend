@@ -113,14 +113,27 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   });
 
   // Step 6: LLM completion with pre-loaded conversation history
-  const { content, usage } = await complete(systemPrompt, userMessage, history);
+  let content = "";
+  let usage = null;
+
+  if (options.stream && typeof options.onProgress === "function") {
+    const stream = await complete(systemPrompt, userMessage, history, 0, true);
+    for await (const chunk of stream) {
+      const textChunk = chunk.choices[0]?.delta?.content || "";
+      content += textChunk;
+      options.onProgress(textChunk);
+    }
+  } else {
+    const response = await complete(systemPrompt, userMessage, history);
+    content = response.content;
+    usage = response.usage;
+  }
 
   // Step 7: Parse structured response
   const { structured, data: structuredData } = parseStructuredResponse(content, dedupedChunks);
   logger.info(`[RAG] Response structured: ${structured}`);
 
   // Step 8: Save conversation turn
-  // Use displayText (includes structured fields) if provided, otherwise use query
   const userMessageContent = options.displayText || query;
   await saveMessages(activeSessionId, userMessageContent, content, userId);
 
