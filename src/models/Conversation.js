@@ -11,6 +11,7 @@ const conversationSchema = new mongoose.Schema(
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: String, default: null },
     messages: [messageSchema],
+    expiresAt: { type: Date, index: { expireAfterSeconds: 0 } },
   },
   { timestamps: true }
 );

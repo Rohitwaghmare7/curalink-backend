@@ -1,4 +1,6 @@
 const { runRagPipeline } = require("../pipelines/rag.pipeline");
+const reqCache = require("../services/cache.service");
+const crypto = require("crypto");
 const logger = require("../utils/logger");
 
 const askQuestion = async (req, res, next) => {
@@ -28,7 +30,7 @@ const askQuestion = async (req, res, next) => {
     // Build the primary query string from structured or natural input
     const primaryQuery = query || additionalQuery || "";
 
-    const result = await runRagPipeline({
+    const pipelineParams = {
       query: primaryQuery.trim(),
       disease: disease?.trim() || null,
       additionalQuery: additionalQuery?.trim() || null,
@@ -42,8 +44,23 @@ const askQuestion = async (req, res, next) => {
         displayText: req.body.displayText || null,
         sourceFilter: source || null,  // 'pubmed' | 'openalex' | 'clinicaltrials' | 'pdf' | null
       },
-      sessionId,
-    });
+      sessionId: sessionId || req.headers['x-request-id'] || 'default', // Fallback to avoid collisions
+    };
+
+    // Generate strict Cache Key
+    const cacheKeyString = JSON.stringify(pipelineParams);
+    const cacheKey = crypto.createHash("sha256").update(cacheKeyString).digest("hex");
+
+    if (reqCache.has(cacheKey)) {
+      logger.info(`[CACHE HIT] Returning instantly for key: ${cacheKey.substring(0, 8)}`);
+      const cachedResult = reqCache.get(cacheKey);
+      return res.json({ success: true, data: cachedResult, _cached: true });
+    }
+
+    const result = await runRagPipeline(pipelineParams);
+
+    // Only cache if successful and safe — using 1 hr TTL
+    reqCache.set(cacheKey, result);
 
     res.json({ success: true, data: result });
   } catch (err) {

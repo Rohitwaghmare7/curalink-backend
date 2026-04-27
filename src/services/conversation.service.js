@@ -16,16 +16,23 @@ const getHistory = async (sessionId, lastN = MAX_HISTORY) => {
 };
 
 const saveMessages = async (sessionId, userMessage, assistantContent, userId = null) => {
+  const setOnInsertData = { sessionId, userId };
+  if (!userId) {
+    // Guest session — expires in 24 hours (86400 seconds)
+    setOnInsertData.expiresAt = new Date(Date.now() + 86400 * 1000);
+  }
+
   await Conversation.findOneAndUpdate(
     { sessionId },
     {
-      $setOnInsert: { sessionId, userId },
+      $setOnInsert: setOnInsertData,
       $push: {
         messages: {
           $each: [
             { role: "user", content: userMessage },
             { role: "assistant", content: assistantContent },
           ],
+          $slice: -200,
         },
       },
     },

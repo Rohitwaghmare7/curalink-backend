@@ -13,10 +13,18 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
-  res.status(err.statusCode || 500).json({
+  const statusCode = err.statusCode || 500;
+  
+  // Mask the message for internal server errors to prevent leaking raw database/network logs to UI
+  const isInternalError = statusCode === 500;
+  const clientMessage = isInternalError
+    ? "An unexpected internal error occurred. Please try again later."
+    : err.message || "An unexpected error occurred.";
+
+  res.status(statusCode).json({
     success: false,
     error: err.code || "INTERNAL_ERROR",
-    message: err.message || "An unexpected error occurred.",
+    message: clientMessage,
   });
 };
 

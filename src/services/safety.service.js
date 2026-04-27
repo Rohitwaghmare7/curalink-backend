@@ -1,14 +1,26 @@
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const KEYWORD_TAXONOMY = {
   emergency: {
+    // Active emergencies block the query completely
     severity: "CRITICAL",
     keywords: [
-      "heart attack", "cardiac arrest", "chest pain", "can't breathe", "cannot breathe",
-      "overdose", "suicidal", "suicide", "kill myself", "end my life",
-      "stroke", "poisoning", "poisoned", "choking", "unconscious", "not breathing",
-      "severe bleeding", "anaphylaxis", "allergic reaction severe",
+      "i'm having a heart attack", "having a heart attack", "cardiac arrest",
+      "intense chest pain", "can't breathe", "cannot breathe",
+      "suicidal", "kill myself", "end my life", "want to die",
+      "choking", "unconscious", "not breathing", "severe bleeding",
+    ],
+  },
+  researchTopic: {
+    // Medical condition names that trigger disclaimers but DO NOT block the query
+    severity: "LOW",
+    keywords: [
+      "heart attack", "chest pain", "overdose", "suicide", "stroke",
+      "poisoning", "poisoned", "anaphylaxis", "allergic reaction severe",
     ],
   },
   diagnosis: {
+    // Personal diagnosis queries block the query completely
     severity: "HIGH",
     keywords: [
       "do i have", "is this cancer", "diagnose me", "what disease do i have",
@@ -36,6 +48,7 @@ const KEYWORD_TAXONOMY = {
 
 const DISCLAIMERS = {
   emergency: "🚨 If you or someone else is experiencing a medical emergency, please call emergency services immediately — 112 (India) / 911 (US).",
+  researchTopic: "⚕️ The information provided about this condition is for educational purposes only. If you are experiencing symptoms, seek immediate professional medical help.",
   diagnosis: "⚕️ Important: This information is for educational purposes only. It does not constitute medical advice, diagnosis, or treatment. Always consult a qualified healthcare professional for personal guidance.",
   prescription: "⚕️ Important: This information is for educational purposes only. It does not constitute medical advice, diagnosis, or treatment. Always consult a qualified healthcare professional for personal guidance.",
   sensitive: "💙 This topic can be sensitive. The information provided is for educational purposes only. Please speak with a healthcare professional for personal support.",
@@ -47,8 +60,10 @@ const inspect = (query) => {
 
   for (const [triggerType, config] of Object.entries(KEYWORD_TAXONOMY)) {
     for (const keyword of config.keywords) {
-      if (lower.includes(keyword)) {
-        return { isSafe: false, triggerType, severity: config.severity };
+      // Use regex to match whole words/phrases bounded by spaces or punctuation
+      const re = new RegExp(`(?:^|[\\s,.])${escapeRegex(keyword)}(?=[\\s,.]|$)`, 'i');
+      if (re.test(lower)) {
+        return { isSafe: !shouldBlock(triggerType), triggerType, severity: config.severity };
       }
     }
   }
