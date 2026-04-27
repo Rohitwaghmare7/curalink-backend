@@ -17,6 +17,9 @@ require("./config/passport");
 
 const app = express();
 
+// Trust proxy is required for rate limiters on Render/Vercel/Heroku
+app.set("trust proxy", 1);
+
 // Security & parsing middleware
 app.use(helmet());
 app.use(cors({
@@ -28,6 +31,9 @@ app.use(cors({
     const allowed = process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
       : ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"];
+
+    // Automatically allow FRONTEND_URL if provided separately
+    if (process.env.FRONTEND_URL) allowed.push(process.env.FRONTEND_URL);
       
     if (allowed.includes(origin)) {
       callback(null, true);
