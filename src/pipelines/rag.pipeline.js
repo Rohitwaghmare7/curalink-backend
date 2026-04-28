@@ -73,16 +73,32 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   const isPdfOnly = sourceFilter === 'pdf';
   logger.info(`[RAG] Resolved sourceFilter: "${sourceFilter}" | isPdfOnly: ${isPdfOnly}`);
 
-  // Step 4: Route query — check cache, live fetch if needed using expanded query (skip web fetch for PDF sources)
-  const { freshFetch, fetchedFrom, embedding: queryEmbedding, expandedQuery } = await routeQuery(query, contextCondition, null, disease, isPdfOnly);
+  // Fast-path for conversational/general non-medical queries
+  // If intent is conversational, skip vector search and live fetch entirely.
+  const isConversational = intent === "conversational" && !contextCondition;
 
-  // Step 5: Vector search (after potential live fetch)
-  // minScore: 0.3 prevents irrelevant chunks from polluting the background knowledge
-  const rawChunks = sourceFilter
-    ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.3, filterField: 'source' })
-    : await search(queryEmbedding, { topK: 30, minScore: 0.3 });
+  let freshFetch = false;
+  let fetchedFrom = [];
+  let expandedQuery = query;
+  let rawChunks = [];
 
-  logger.info(`[RAG] Retrieved ${rawChunks.length} chunks | freshFetch: ${freshFetch}`);
+  if (isConversational) {
+    logger.info(`[RAG] Conversational query detected. Bypassing vector retrieval.`);
+  } else {
+    // Step 4: Route query — check cache, live fetch if needed using expanded query (skip web fetch for PDF sources)
+    const routeParams = await routeQuery(query, contextCondition, null, disease, isPdfOnly);
+    freshFetch = routeParams.freshFetch;
+    fetchedFrom = routeParams.fetchedFrom;
+    expandedQuery = routeParams.expandedQuery;
+    const queryEmbedding = routeParams.embedding;
+
+    // Step 5: Vector search (after potential live fetch)
+    rawChunks = sourceFilter
+      ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.3, filterField: 'source' })
+      : await search(queryEmbedding, { topK: 30, minScore: 0.3 });
+
+    logger.info(`[RAG] Retrieved ${rawChunks.length} chunks | freshFetch: ${freshFetch}`);
+  }
 
   // Step 4b: Re-rank by relevance + recency + source credibility
   const rerankedChunks = rerank(rawChunks);

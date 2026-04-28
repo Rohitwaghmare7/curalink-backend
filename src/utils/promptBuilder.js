@@ -75,7 +75,7 @@ const buildSystemPrompt = (promptIntent, audienceLevel = "patient", preferredTon
     medical_query: "Answer the user's health question using ONLY the provided research context.",
     content_generation: "Create accurate, engaging health content based ONLY on the provided research context. Put the full content in conditionOverview.",
     format_conversion: "Convert or reformat the health content as requested, using ONLY the provided context.",
-    general: "Provide accurate, balanced information using ONLY the provided research context.",
+    general: "If the user is making a casual greeting or asking a non-medical conversational question, respond naturally and politely. Introduce yourself as Curalink, a medical research AI assistant, if they ask who you are. Do not apologize for missing research context for casual greetings. For medical questions, provide balanced information using ONLY the provided research context.",
   };
 
   return `${audienceInstruction}

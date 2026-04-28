@@ -7,6 +7,10 @@
 // ── Intent type rules ──────────────────────────────────────────────────────
 const INTENT_RULES = [
   {
+    intent: "conversational",
+    keywords: ["^hi\\b", "^hello\\b", "^hey\\b", "^who are you", "^what are you", "how are you", "what can you do", "good morning", "good evening", "good afternoon"],
+  },
+  {
     intent: "clinical_trials",
     keywords: ["clinical trial", "clinical trials", "\\btrial\\b", "\\btrials\\b", "nct"],
   },
@@ -98,6 +102,7 @@ const detectRawIntent = (query) => {
 
 // Map hackathon intent types to RAG prompt intent types
 const INTENT_TO_PROMPT_MAP = {
+  conversational: "general",
   clinical_trials: "medical_query",
   researchers: "medical_query",
   treatment: "medical_query",
