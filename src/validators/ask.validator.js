@@ -17,10 +17,18 @@ const askSchema = Joi.object({
   location: Joi.string().trim().max(100).allow(null, ''),
   
   source: Joi.string()
-    .valid('pubmed', 'openalex', 'clinicaltrials', 'uploaded pdfs', 'pdf', 'All Sources')
+    .valid('pubmed', 'openalex', 'clinicaltrials', 'uploaded pdfs', 'Uploaded PDFs', 'pdf', 'All Sources')
     .allow(null, ''),
   
   displayText: Joi.string().trim().max(2000).allow(null, ''),
+  
+  // Adding missing fields that were stripped by validate.middleware.js
+  sessionId: Joi.string().trim().allow(null, ''),
+  additionalQuery: Joi.string().trim().max(500).allow(null, ''),
+  userId: Joi.string().trim().allow(null, ''),
+  audienceLevel: Joi.string().trim().allow(null, ''),
+  preferredTone: Joi.string().trim().allow(null, ''),
+  options: Joi.object().unknown(true).allow(null),
 });
 
 module.exports = { askSchema };

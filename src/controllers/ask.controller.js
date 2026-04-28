@@ -2,6 +2,8 @@ const { runRagPipeline } = require("../pipelines/rag.pipeline");
 const reqCache = require("../services/cache.service");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
+const { saveMessages } = require("../services/conversation.service");
+const { v4: uuidv4 } = require("uuid");
 
 const askQuestion = async (req, res, next) => {
   try {
@@ -53,6 +55,15 @@ const askQuestion = async (req, res, next) => {
       logger.info(`[CACHE HIT] Returning instantly for key: ${cacheKey.substring(0, 8)}`);
       const cachedResult = reqCache.get(cacheKey);
       
+      const activeSessionId = sessionId || req.headers['x-request-id'] || uuidv4();
+      
+      // Asynchronously save to history so follow-up queries work
+      const userMessageContent = req.body.displayText || primaryQuery;
+      saveMessages(activeSessionId, userMessageContent, cachedResult.conditionOverview || "", req.userId || userId)
+        .catch(err => logger.error(`Cache history save error: ${err.message}`));
+      
+      const responseData = { ...cachedResult, sessionId: activeSessionId };
+
       const isStreaming = options?.stream === true;
       if (isStreaming) {
         res.writeHead(200, {
@@ -62,10 +73,10 @@ const askQuestion = async (req, res, next) => {
           'X-Accel-Buffering': 'no',
         });
         res.write(`data: ${JSON.stringify({ type: 'chunk', text: cachedResult.condition })}\n\n`);
-        res.write(`data: ${JSON.stringify({ type: 'done', ...cachedResult, _cached: true })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', ...responseData, _cached: true })}\n\n`);
         return res.end();
       }
-      return res.json({ success: true, data: cachedResult, _cached: true });
+      return res.json({ success: true, data: responseData, _cached: true });
     }
 
     const pipelineParams = {
@@ -74,7 +85,7 @@ const askQuestion = async (req, res, next) => {
         ...cacheParams.options,
         displayText: req.body.displayText || null,
       },
-      sessionId: sessionId || req.headers['x-request-id'] || 'default',
+      sessionId: sessionId || req.headers['x-request-id'] || undefined,
     };
 
     const isStreaming = cacheParams.options.stream;
