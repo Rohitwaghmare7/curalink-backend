@@ -23,7 +23,10 @@ const JSON_SCHEMA = `{
   ],
   "sources": [
     { "title": "Paper title", "authors": ["Author 1", "Author 2"], "year": 2024, "platform": "pubmed/openalex/clinicaltrials", "url": "https://...", "snippet": "Brief excerpt from the paper" }
-  ]
+  ],
+  "trialEligibilitySummary": "A high-level summary of who is eligible for these trials (e.g. age, condition stage, previous treatments)",
+  "patientTakeaways": ["Actionable takeaway 1", "Actionable takeaway 2"],
+  "suggestedQuestions": ["Specific question for doctor 1", "Specific question for doctor 2"]
 }`;
 
 // ── Audience-aware system prompt variants ─────────────────────────────────
@@ -89,7 +92,8 @@ ${BASE_RULES}
 You MUST respond with ONLY valid JSON matching this exact schema:
 ${JSON_SCHEMA}
 
-Populate all fields. For clinicalTrials, include any trials mentioned in the context with their location and contact info. For experts, extract author names from the sources. Every source used must appear in the sources array.`;
+Populate all fields. For clinicalTrials, include any trials mentioned in the context. Every source used must appear in the sources array. 
+IMPORTANT: The patientTakeaways should be highly practical and specific to the research findings. The suggestedQuestions should help the user have a productive conversation with their doctor about these findings. The trialEligibilitySummary should be a concise overview for all clinical trials provided.`;
 };
 
 const buildContextString = (chunks, options = {}) => {

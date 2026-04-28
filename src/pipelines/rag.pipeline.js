@@ -94,8 +94,8 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
 
     // Step 5: Vector search (after potential live fetch)
     rawChunks = sourceFilter
-      ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 30, minScore: 0.3, filterField: 'source' })
-      : await search(queryEmbedding, { topK: 30, minScore: 0.3 });
+      ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 100, minScore: 0.3, filterField: 'source' })
+      : await search(queryEmbedding, { topK: 100, minScore: 0.3 });
 
     logger.info(`[RAG] Retrieved ${rawChunks.length} chunks | freshFetch: ${freshFetch}`);
   }
@@ -111,8 +111,15 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
       seenPapers.set(key, chunk);
     }
   }
-  const dedupedChunks = Array.from(seenPapers.values()).slice(0, 8);
+  const dedupedChunks = Array.from(seenPapers.values()).slice(0, 20);
   logger.info(`[RAG] After dedup: ${dedupedChunks.length} unique papers | top score=${dedupedChunks[0]?.rankingScore} source=${dedupedChunks[0]?.source}`);
+
+  // Calculate stats for better transparency
+  const stats = {
+    papers: dedupedChunks.filter(c => c.source !== 'clinicaltrials').length,
+    trials: dedupedChunks.filter(c => c.source === 'clinicaltrials').length,
+    totalSources: rawChunks.length,
+  };
 
   // Step 5: Build prompt using promptIntent + condition context + user profile
   const audienceLevel = options.audienceLevel || "patient";
@@ -172,6 +179,7 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
     audienceLevel,
     sessionId: activeSessionId,
     ...structuredData,
+    stats,
     disclaimers,
     usage,
   };
