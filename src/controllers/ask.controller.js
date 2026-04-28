@@ -51,11 +51,11 @@ const askQuestion = async (req, res, next) => {
 
     const cacheKey = crypto.createHash("sha256").update(JSON.stringify(cacheParams)).digest("hex");
 
-    if (reqCache.has(cacheKey)) {
+    if (!sessionId && reqCache.has(cacheKey)) {
       logger.info(`[CACHE HIT] Returning instantly for key: ${cacheKey.substring(0, 8)}`);
       const cachedResult = reqCache.get(cacheKey);
       
-      const activeSessionId = sessionId || req.headers['x-request-id'] || uuidv4();
+      const activeSessionId = req.headers['x-request-id'] || uuidv4();
       
       // Asynchronously save to history so follow-up queries work
       const userMessageContent = req.body.displayText || primaryQuery;
@@ -105,7 +105,10 @@ const askQuestion = async (req, res, next) => {
     const result = await runRagPipeline(pipelineParams);
 
     // Only cache if successful and safe — using 1 hr TTL
-    reqCache.set(cacheKey, result);
+    // We do not cache follow-up queries (where sessionId exists) to avoid context leaking
+    if (!sessionId) {
+      reqCache.set(cacheKey, result);
+    }
 
     if (isStreaming) {
       res.write(`data: ${JSON.stringify({ type: 'done', ...result })}\n\n`);
