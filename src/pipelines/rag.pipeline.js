@@ -114,11 +114,27 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   const dedupedChunks = Array.from(seenPapers.values()).slice(0, 20);
   logger.info(`[RAG] After dedup: ${dedupedChunks.length} unique papers | top score=${dedupedChunks[0]?.rankingScore} source=${dedupedChunks[0]?.source}`);
 
+  // Calculate research trend (sources by year)
+  const years = rawChunks
+    .map(c => parseInt(c.year))
+    .filter(y => !isNaN(y) && y > 1900 && y <= new Date().getFullYear());
+  
+  const yearCounts = years.reduce((acc, y) => {
+    acc[y] = (acc[y] || 0) + 1;
+    return acc;
+  }, {});
+
+  const sourceTrendData = Object.keys(yearCounts)
+    .map(y => ({ year: parseInt(y), count: yearCounts[y] }))
+    .sort((a, b) => a.year - b.year)
+    .slice(-10); // Last 10 years of data points
+
   // Calculate stats for better transparency
   const stats = {
     papers: dedupedChunks.filter(c => c.source !== 'clinicaltrials').length,
     trials: dedupedChunks.filter(c => c.source === 'clinicaltrials').length,
     totalSources: rawChunks.length,
+    sourceTrend: sourceTrendData.length >= 3 ? sourceTrendData : null
   };
 
   // Step 5: Build prompt using promptIntent + condition context + user profile
@@ -158,7 +174,9 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
 
   // Step 8: Save conversation turn
   const userMessageContent = options.displayText || query;
-  const finalContentToSave = structured ? JSON.stringify(structuredData) : content;
+  // Include stats in the saved data so they persist in history
+  const dataToSave = structured ? { ...structuredData, stats, chartInsight: structuredData.chartInsight } : content;
+  const finalContentToSave = typeof dataToSave === 'object' ? JSON.stringify(dataToSave) : dataToSave;
   await saveMessages(activeSessionId, userMessageContent, finalContentToSave, userId);
 
   // Step 9: Safety post-check — add disclaimer

@@ -26,7 +26,8 @@ const JSON_SCHEMA = `{
   ],
   "trialEligibilitySummary": "A high-level summary of who is eligible for these trials (e.g. age, condition stage, previous treatments)",
   "patientTakeaways": ["Actionable takeaway 1", "Actionable takeaway 2"],
-  "suggestedQuestions": ["Specific question for doctor 1", "Specific question for doctor 2"]
+  "suggestedQuestions": ["Specific question for doctor 1", "Specific question for doctor 2"],
+  "chartInsight": "A brief observation about the research trend shown in the graph (e.g. 'There has been a surge in publications since 2022')"
 }`;
 
 // ── Audience-aware system prompt variants ─────────────────────────────────
@@ -93,7 +94,7 @@ You MUST respond with ONLY valid JSON matching this exact schema:
 ${JSON_SCHEMA}
 
 Populate all fields. For clinicalTrials, include any trials mentioned in the context. Every source used must appear in the sources array. 
-IMPORTANT: The patientTakeaways should be highly practical and specific to the research findings. The suggestedQuestions should help the user have a productive conversation with their doctor about these findings. The trialEligibilitySummary should be a concise overview for all clinical trials provided.`;
+IMPORTANT: The patientTakeaways should be highly practical and specific to the research findings. The suggestedQuestions should help the user have a productive conversation with their doctor about these findings. The trialEligibilitySummary should be a concise overview for all clinical trials provided. The chartInsight should summarize any visible trends in publication years or research volume.`;
 };
 
 const buildContextString = (chunks, options = {}) => {
