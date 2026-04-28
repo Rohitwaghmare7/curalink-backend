@@ -135,7 +135,8 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
 
   // Step 8: Save conversation turn
   const userMessageContent = options.displayText || query;
-  await saveMessages(activeSessionId, userMessageContent, content, userId);
+  const finalContentToSave = structured ? JSON.stringify(structuredData) : content;
+  await saveMessages(activeSessionId, userMessageContent, finalContentToSave, userId);
 
   // Step 9: Safety post-check — add disclaimer
   const disclaimerText = getDisclaimer(safetyResult.triggerType);
