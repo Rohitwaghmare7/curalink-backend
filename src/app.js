@@ -55,6 +55,9 @@ app.use(requestId);
 // Rate limiting (global)
 app.use(globalLimiter);
 
+// Fast ping for keep-alive (no DB dependencies)
+app.get("/api/ping", (_req, res) => res.json({ status: "ok" }));
+
 // Routes
 app.use("/api/health", healthRoute);
 app.use("/api/auth", authRoute);
