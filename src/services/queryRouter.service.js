@@ -1,3 +1,6 @@
+const { searchPapers: pubmedSearch } = require("../services/pubmed.service");
+const { searchPapers: openalexSearch } = require("../services/openalex.service");
+const { searchTrials } = require("../services/clinicaltrials.service");
 const { runResearchIngestionPipeline } = require("../pipelines/research.ingestion.pipeline");
 const { generateEmbedding } = require("./embedding.service");
 const { search } = require("./retrieval.service");
@@ -6,83 +9,87 @@ const logger = require("../utils/logger");
 
 const FRESH_FETCH_THRESHOLD = parseInt(process.env.FRESH_FETCH_THRESHOLD) || 3;
 const MIN_SCORE = parseFloat(process.env.MIN_RETRIEVAL_SCORE) || 0.5;
-const MAX_PER_SOURCE = parseInt(process.env.MAX_PAPERS_PER_SOURCE) || 50;
+const MAX_PER_SOURCE = parseInt(process.env.MAX_PAPERS_PER_SOURCE) || 10;
+
+const SOURCE_FETCHERS = {
+  pubmed: (query, max) => pubmedSearch(query, max),
+  openalex: (query, max) => openalexSearch(query, max),
+  clinicaltrials: (query, max) => searchTrials(query, max),
+};
 
 /**
- * Checks if Pinecone has enough relevant results for a query.
- * If not, triggers a live fetch from PubMed + OpenAlex + ClinicalTrials, then re-queries.
- * Uses expanded query (additionalQuery AND disease) for API searches.
+ * NEW FAST-PATH FLOW:
+ * 1. Check Pinecone (vector store) first — instant if data is cached.
+ * 2. If enough results → return them immediately (no live fetch needed).
+ * 3. If not enough → fetch LIVE from APIs in parallel (no embedding wait).
+ *    - Return raw live papers directly for LLM to use.
+ *    - Store embeddings in the BACKGROUND (does not block response).
  */
 const routeQuery = async (query, condition, existingEmbedding = null, disease = null, skipLiveFetch = false) => {
-  // Use explicit disease if provided, else use inherited condition
   const focusCondition = disease || condition;
-  
-  // Build expanded search term for RAG precision
   const expandedQuery = buildExpandedQuery(query, focusCondition);
   const searchTerm = expandedQuery || focusCondition || query;
 
   logger.info(`[QueryRouter] Primary search term: "${searchTerm}"`);
 
-  // Generate embedding for the expanded query (for best RAG match if condition is correct)
+  // ── Step 1: Check Pinecone (vector cache) ──────────────────────────────────
   const embedding = existingEmbedding || await generateEmbedding(searchTerm);
-
-  // Check current Pinecone results for the search term
   const existing = await search(embedding, { topK: 10, minScore: MIN_SCORE });
-  
-  // If we have no results with the expanded query, try searching for just the original query
-  // to see if the user has changed the topic.
-  let finalResults = existing;
-  let finalEmbedding = embedding;
-  let finalSearchTerm = searchTerm;
 
-  if (existing.length < FRESH_FETCH_THRESHOLD && query && focusCondition && query.toLowerCase() !== focusCondition.toLowerCase()) {
-    logger.info(`[QueryRouter] Low matches for expanded query. Trying original query: "${query}"`);
-    const queryOnlyEmbedding = await generateEmbedding(query);
-    const queryOnlyResults = await search(queryOnlyEmbedding, { topK: 10, minScore: MIN_SCORE });
-    
-    if (queryOnlyResults.length > existing.length) {
-      logger.info(`[QueryRouter] Original query found more results (${queryOnlyResults.length}). Switching focus.`);
-      finalResults = queryOnlyResults;
-      finalEmbedding = queryOnlyEmbedding;
-      finalSearchTerm = query;
-    }
-  }
+  // Count how many results are actually relevant to the condition
+  const conditionKeyword = (focusCondition || "").toLowerCase();
+  const relevantCount = conditionKeyword
+    ? existing.filter((c) => {
+        const text = `${c.title || ""} ${c.text || ""}`.toLowerCase();
+        return text.includes(conditionKeyword) ||
+          (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
+      }).length
+    : existing.length;
 
-  const conditionKeyword = (focusCondition || '').toLowerCase();
-  const relevantToCondition = conditionKeyword
-    ? finalResults.filter((c) => {
-      const text = `${c.title || ''} ${c.text || ''}`.toLowerCase();
-      return text.includes(conditionKeyword) ||
-        (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
-    })
-    : finalResults;
+  logger.info(`[QueryRouter] ${relevantCount}/${existing.length} chunks match condition "${conditionKeyword}"`);
 
-  const relevantCount = relevantToCondition.length;
-  logger.info(`[QueryRouter] ${relevantCount}/${finalResults.length} chunks match condition "${conditionKeyword}"`);
-
-  // If we have enough relevant results, return them
+  // ── Step 2: Enough cached results → return immediately ────────────────────
   if (relevantCount >= FRESH_FETCH_THRESHOLD || skipLiveFetch) {
-    return { freshFetch: false, fetchedFrom: [], embedding: finalEmbedding, expandedQuery: finalSearchTerm };
+    logger.info(`[QueryRouter] Using cached Pinecone results — no live fetch needed.`);
+    return {
+      freshFetch: false,
+      fetchedFrom: [],
+      livePapers: [],       // no live papers, Pinecone has it covered
+      embedding,
+      expandedQuery: searchTerm,
+    };
   }
 
-  // Not enough results — trigger live fetch with expanded query
-  logger.info(`[QueryRouter] Insufficient results — fetching live data for: "${searchTerm}"`);
+  // ── Step 3: Not enough cached → fetch LIVE in parallel ───────────────────
+  logger.info(`[QueryRouter] Insufficient cache — fetching LIVE from APIs for: "${searchTerm}"`);
+  const sources = ["pubmed", "openalex", "clinicaltrials"];
 
-  try {
-    const result = await runResearchIngestionPipeline({
-      query: searchTerm,
-      sources: ["pubmed", "openalex", "clinicaltrials"],
-      maxPerSource: MAX_PER_SOURCE,
+  const fetchPromises = sources.map((s) =>
+    SOURCE_FETCHERS[s](searchTerm, MAX_PER_SOURCE).catch((err) => {
+      logger.error(`[QueryRouter] ${s} live fetch failed: ${err.message}`);
+      return [];
+    })
+  );
+
+  const fetched = (await Promise.all(fetchPromises)).flat();
+  logger.info(`[QueryRouter] Live fetched ${fetched.length} papers — passing directly to LLM.`);
+
+  // ── Step 4: Store embeddings in BACKGROUND (non-blocking) ─────────────────
+  if (fetched.length > 0) {
+    setImmediate(() => {
+      runResearchIngestionPipeline({ query: searchTerm, sources, maxPerSource: MAX_PER_SOURCE })
+        .then((r) => logger.info(`[QueryRouter] Background ingestion done — ${r.ingested} new papers stored.`))
+        .catch((err) => logger.warn(`[QueryRouter] Background ingestion failed: ${err.message}`));
     });
-
-    const fetchedFrom = result.ingested > 0 ? ["pubmed", "openalex", "clinicaltrials"] : [];
-
-    logger.info(`[QueryRouter] Live fetch complete — ingested: ${result.ingested}`);
-    return { freshFetch: result.ingested > 0, fetchedFrom, embedding, expandedQuery: searchTerm };
-  } catch (err) {
-    logger.error(`[QueryRouter] Live fetch failed: ${err.message}`);
-    return { freshFetch: false, fetchedFrom: [], embedding, expandedQuery: searchTerm };
   }
+
+  return {
+    freshFetch: fetched.length > 0,
+    fetchedFrom: sources,
+    livePapers: fetched,    // passed directly to RAG pipeline for LLM context
+    embedding,
+    expandedQuery: searchTerm,
+  };
 };
 
 module.exports = { routeQuery };

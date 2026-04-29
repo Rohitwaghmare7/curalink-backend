@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const messageSchema = new mongoose.Schema({
   role: { type: String, enum: ["user", "assistant"], required: true },
   content: { type: String, required: true },
+  condition: { type: String, default: null }, // Stores the medical topic (e.g. "Progeria")
   timestamp: { type: Date, default: Date.now },
 });
 

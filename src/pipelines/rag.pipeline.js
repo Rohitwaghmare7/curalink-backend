@@ -1,4 +1,4 @@
-const { extractQueryIntent } = require("../services/intent.service");
+const { extractQueryIntent, extractQueryIntentSync } = require("../services/intent.service");
 const { search, filteredSearch } = require("../services/retrieval.service");
 const { rerank } = require("../services/reranker.service");
 const { routeQuery } = require("../services/queryRouter.service");
@@ -32,27 +32,30 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
     throw err;
   }
 
-  // Step 2: Query understanding — extract condition + intent
-  // If disease was passed explicitly, use it; otherwise extract from query
-  const { condition: extractedCondition, intent, promptIntent, timeframe } = await extractQueryIntent(query);
+  // Step 2: Run intent extraction + history loading IN PARALLEL (saves 5-10s)
+  const [intentResult, history] = await Promise.all([
+    extractQueryIntent(query),
+    getHistory(activeSessionId),
+  ]);
+
+  const { condition: extractedCondition, intent, promptIntent, timeframe } = intentResult;
   const condition = disease || extractedCondition;
   logger.info(`[RAG] Intent: ${intent} | Condition: ${condition || "unknown"} | Timeframe: ${timeframe || "any"}`);
 
-  // Step 2b: Load conversation history early — needed for context-aware retrieval
-  const history = await getHistory(activeSessionId);
-
-  // Step 2c: If no condition found in current query, extract from previous conversation turns
-  // Enhanced: Only inherit if the intent suggests a follow-up or query is short/ambiguous
+  // Step 2b: If no condition found, scan history using the CHEAP rule-based check
+  // (not Gemini — to avoid burning API quota on history messages)
+  // IMPORTANT: Never inherit condition for conversational queries ("hello", "hi", etc.)
   let contextCondition = condition;
   const isFollowUpIntent = ["treatment", "clinical_trials", "researchers", "research"].includes(intent);
-  const isShortQuery = query.split(" ").length <= 4;
+  const isShortQuery = query.split(" ").length <= 5 || /\b(this|that|it|its|they|them|those)\b/i.test(query);
+  const isConversationalIntent = intent === "conversational";
 
-  if (!contextCondition && history.length > 0 && (isFollowUpIntent || isShortQuery)) {
+  if (!contextCondition && !isConversationalIntent && history.length > 0 && (isFollowUpIntent || isShortQuery)) {
+    // Perfect context inheritance: Use the stored condition from the database
     for (const msg of [...history].reverse()) {
-      const { condition: prevCondition } = await extractQueryIntent(msg.content);
-      if (prevCondition) {
-        contextCondition = prevCondition;
-        logger.info(`[RAG] No condition in query — using context condition from history: "${contextCondition}" (Reason: ${isFollowUpIntent ? "follow-up intent" : "short query"})`);
+      if (msg.condition) {
+        contextCondition = msg.condition;
+        logger.info(`[RAG] No condition in query — using stored condition from history: "${contextCondition}"`);
         break;
       }
     }
@@ -73,9 +76,9 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   const isPdfOnly = sourceFilter === 'pdf';
   logger.info(`[RAG] Resolved sourceFilter: "${sourceFilter}" | isPdfOnly: ${isPdfOnly}`);
 
-  // Fast-path for conversational/general non-medical queries
-  // If intent is conversational, skip vector search and live fetch entirely.
-  const isConversational = intent === "conversational" && !contextCondition;
+  // Fast-path: if intent is conversational ("hello", "hi", etc.), ALWAYS bypass RAG.
+  // Never attach medical context to greetings/small-talk.
+  const isConversational = intent === "conversational";
 
   let freshFetch = false;
   let fetchedFrom = [];
@@ -85,20 +88,44 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   if (isConversational) {
     logger.info(`[RAG] Conversational query detected. Bypassing vector retrieval.`);
   } else {
-    // Step 4: Route query — check cache, live fetch if needed using expanded query (skip web fetch for PDF sources)
+    // Step 4: Route query — check Pinecone cache first, live fetch if not enough
     const routeParams = await routeQuery(query, contextCondition, null, disease, isPdfOnly);
     freshFetch = routeParams.freshFetch;
     fetchedFrom = routeParams.fetchedFrom;
     expandedQuery = routeParams.expandedQuery;
     const queryEmbedding = routeParams.embedding;
+    const livePapers = routeParams.livePapers || [];
 
-    // Step 5: Vector search (after potential live fetch)
-    rawChunks = sourceFilter
-      ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 100, minScore: 0.3, filterField: 'source' })
-      : await search(queryEmbedding, { topK: 100, minScore: 0.3 });
+    if (livePapers.length > 0) {
+      // Fast-path: Use live-fetched papers directly — no extra Pinecone search needed
+      logger.info(`[RAG] Using ${livePapers.length} live-fetched papers directly (no embedding wait).`);
+      rawChunks = livePapers.map((paper) => ({
+        paperId: paper.paperId,
+        title: paper.title,
+        text: [paper.title, paper.abstract].filter(Boolean).join("\n\n"),
+        abstract: paper.abstract || "",
+        authors: paper.authors || [],
+        year: paper.year || null,
+        source: paper.source,
+        url: paper.url || "",
+        status: paper.status || "",
+        phase: paper.phase || "",
+        eligibility: paper.eligibility || "",
+        locations: paper.locations || [],
+        contacts: paper.contacts || [],
+        rankingScore: 0.8, // default score for live results
+        score: 0.8,
+      }));
+    } else {
+      // Cached-path: Vector search from Pinecone (fast, already embedded)
+      rawChunks = sourceFilter
+        ? await filteredSearch(queryEmbedding, sourceFilter, { topK: 100, minScore: 0.3, filterField: 'source' })
+        : await search(queryEmbedding, { topK: 100, minScore: 0.3 });
+    }
 
     logger.info(`[RAG] Retrieved ${rawChunks.length} chunks | freshFetch: ${freshFetch}`);
   }
+
 
   // Step 4b: Re-rank by relevance + recency + source credibility
   const rerankedChunks = rerank(rawChunks);
@@ -111,7 +138,8 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
       seenPapers.set(key, chunk);
     }
   }
-  const dedupedChunks = Array.from(seenPapers.values()).slice(0, 20);
+  // Limit to 25 unique papers to stay within Groq's 12k TPM limit
+  const dedupedChunks = Array.from(seenPapers.values()).slice(0, 25);
   logger.info(`[RAG] After dedup: ${dedupedChunks.length} unique papers | top score=${dedupedChunks[0]?.rankingScore} source=${dedupedChunks[0]?.source}`);
 
   // Calculate research trend (sources by year)
@@ -177,7 +205,9 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
   // Include stats in the saved data so they persist in history
   const dataToSave = structured ? { ...structuredData, stats, chartInsight: structuredData.chartInsight } : content;
   const finalContentToSave = typeof dataToSave === 'object' ? JSON.stringify(dataToSave) : dataToSave;
-  await saveMessages(activeSessionId, userMessageContent, finalContentToSave, userId);
+  
+  // CRITICAL: Pass the condition so it can be inherited in follow-up queries
+  await saveMessages(activeSessionId, userMessageContent, finalContentToSave, userId, contextCondition || condition);
 
   // Step 9: Safety post-check — add disclaimer
   const disclaimerText = getDisclaimer(safetyResult.triggerType);

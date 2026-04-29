@@ -12,10 +12,11 @@ const getHistory = async (sessionId, lastN = MAX_HISTORY) => {
   return conv.messages.slice(-lastN * 2).map((m) => ({
     role: m.role,
     content: m.content,
+    condition: m.condition,
   }));
 };
 
-const saveMessages = async (sessionId, userMessage, assistantContent, userId = null) => {
+const saveMessages = async (sessionId, userMessage, assistantContent, userId = null, condition = null) => {
   const setOnInsertData = { sessionId, userId };
   if (!userId) {
     // Guest session — expires in 24 hours (86400 seconds)
@@ -29,14 +30,14 @@ const saveMessages = async (sessionId, userMessage, assistantContent, userId = n
       $push: {
         messages: {
           $each: [
-            { role: "user", content: userMessage },
-            { role: "assistant", content: assistantContent },
+            { role: "user", content: userMessage, condition },
+            { role: "assistant", content: assistantContent, condition },
           ],
           $slice: -200,
         },
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 };
 

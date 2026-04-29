@@ -54,14 +54,30 @@ const askQuestion = async (req, res, next) => {
     if (!sessionId && reqCache.has(cacheKey)) {
       logger.info(`[CACHE HIT] Returning instantly for key: ${cacheKey.substring(0, 8)}`);
       const cachedResult = reqCache.get(cacheKey);
-      
+
       const activeSessionId = req.headers['x-request-id'] || uuidv4();
-      
+
       // Asynchronously save to history so follow-up queries work
       const userMessageContent = req.body.displayText || primaryQuery;
-      saveMessages(activeSessionId, userMessageContent, cachedResult.conditionOverview || "", req.userId || userId)
+
+      // Standardize format: if structured, save the relevant data keys
+      const dataToSave = cachedResult.structured
+        ? JSON.stringify({
+          conditionOverview: cachedResult.conditionOverview,
+          researchInsights: cachedResult.researchInsights,
+          clinicalTrials: cachedResult.clinicalTrials,
+          experts: cachedResult.experts,
+          sources: cachedResult.sources,
+          patientTakeaways: cachedResult.patientTakeaways,
+          suggestedQuestions: cachedResult.suggestedQuestions,
+          stats: cachedResult.stats,
+          chartInsight: cachedResult.chartInsight
+        })
+        : cachedResult.conditionOverview || "";
+
+      saveMessages(activeSessionId, userMessageContent, dataToSave, req.userId || userId, cachedResult.condition)
         .catch(err => logger.error(`Cache history save error: ${err.message}`));
-      
+
       const responseData = { ...cachedResult, sessionId: activeSessionId };
 
       const isStreaming = options?.stream === true;
@@ -105,7 +121,6 @@ const askQuestion = async (req, res, next) => {
     const result = await runRagPipeline(pipelineParams);
 
     // Only cache if successful and safe — using 1 hr TTL
-    // We do not cache follow-up queries (where sessionId exists) to avoid context leaking
     if (!sessionId) {
       reqCache.set(cacheKey, result);
     }
@@ -118,6 +133,17 @@ const askQuestion = async (req, res, next) => {
     res.json({ success: true, data: result });
   } catch (err) {
     logger.error(`Ask error: ${err.message}`);
+
+    // Friendly error when both LLMs are rate-limited
+    if (err.status === 429 || err.message?.includes('429')) {
+      return res.status(503).json({
+        success: false,
+        error: "SERVICE_BUSY",
+        message: "Our AI is temporarily unavailable due to high demand. Please try again in a few minutes.",
+        retryAfter: 120,
+      });
+    }
+
     next(err);
   }
 };

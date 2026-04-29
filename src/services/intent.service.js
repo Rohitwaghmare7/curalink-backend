@@ -81,6 +81,8 @@ const CONDITION_PATTERNS = [
   /\b(hiv|aids|hepatitis|arthritis|osteoporosis|fibromyalgia|lupus|crohn'?s?|ibs|irritable bowel|kidney disease|liver disease)\b/i,
   // Symptoms and common complaints
   /\b(nose bleed|nose bleeding|epistaxis|bleeding|injury|pain|fever|cough|shortness of breath|headache|nausea|vomiting|dizziness|fatigue|rash|itchy|swelling|sore throat|congestion|bloating|cramp|insomnia|tremor|seizure|weakness|numbness|blurred vision)\b/i,
+  // Catch-all for multi-word Capitalized Medical Conditions (e.g. "Fibrodysplasia Ossificans Progressiva")
+  /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,5})\b/,
 ];
 
 const extractCondition = (query) => {
@@ -210,4 +212,4 @@ const buildExpandedQuery = (query, disease) => {
   return `${query.trim()} AND ${disease.trim()}`;
 };
 
-module.exports = { extractQueryIntent, detectIntent, buildExpandedQuery };
+module.exports = { extractQueryIntent, extractQueryIntentSync: extractQueryIntentRuleBased, detectIntent, buildExpandedQuery };
