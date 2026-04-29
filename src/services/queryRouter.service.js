@@ -40,10 +40,10 @@ const routeQuery = async (query, condition, existingEmbedding = null, disease = 
   const conditionKeyword = (focusCondition || "").toLowerCase();
   const relevantCount = conditionKeyword
     ? existing.filter((c) => {
-        const text = `${c.title || ""} ${c.text || ""}`.toLowerCase();
-        return text.includes(conditionKeyword) ||
-          (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
-      }).length
+      const text = `${c.title || ""} ${c.text || ""}`.toLowerCase();
+      return text.includes(conditionKeyword) ||
+        (c.condition && c.condition.toLowerCase().includes(conditionKeyword));
+    }).length
     : existing.length;
 
   logger.info(`[QueryRouter] ${relevantCount}/${existing.length} chunks match condition "${conditionKeyword}"`);
@@ -74,14 +74,8 @@ const routeQuery = async (query, condition, existingEmbedding = null, disease = 
   const fetched = (await Promise.all(fetchPromises)).flat();
   logger.info(`[QueryRouter] Live fetched ${fetched.length} papers — passing directly to LLM.`);
 
-  // ── Step 4: Store embeddings in BACKGROUND (non-blocking) ─────────────────
-  if (fetched.length > 0) {
-    setImmediate(() => {
-      runResearchIngestionPipeline({ query: searchTerm, sources, maxPerSource: MAX_PER_SOURCE })
-        .then((r) => logger.info(`[QueryRouter] Background ingestion done — ${r.ingested} new papers stored.`))
-        .catch((err) => logger.warn(`[QueryRouter] Background ingestion failed: ${err.message}`));
-    });
-  }
+  // ── Step 4: [DISABLED] Store embeddings in BACKGROUND (non-blocking) ─────
+  // Removed per user request to stop background embedding during live fetch.
 
   return {
     freshFetch: fetched.length > 0,
