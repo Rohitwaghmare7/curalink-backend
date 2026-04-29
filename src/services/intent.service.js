@@ -1,3 +1,13 @@
+const { OpenAI } = require("openai");
+const logger = require("../utils/logger");
+
+// Initialize Gemini client for intent extraction
+const geminiClient = new OpenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  baseURL: process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai/"
+});
+const GEMINI_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-2.0-flash";
+
 /**
  * Intent Service — Phase 5 upgrade
  * Extracts: condition, intent type, timeframe, and raw intent category
@@ -113,7 +123,10 @@ const INTENT_TO_PROMPT_MAP = {
   general: "general",
 };
 
-const extractQueryIntent = (query) => {
+/**
+ * Rule-based fallback for intent extraction
+ */
+const extractQueryIntentRuleBased = (query) => {
   const condition = extractCondition(query);
   const intent = detectRawIntent(query);
   const timeframe = extractTimeframe(query);
@@ -127,9 +140,55 @@ const extractQueryIntent = (query) => {
   };
 };
 
-// Keep backward-compatible export
-const detectIntent = (query) => {
-  const { promptIntent } = extractQueryIntent(query);
+/**
+ * Primary intent extraction using Gemini LLM
+ */
+const extractQueryIntent = async (query) => {
+  try {
+    const systemPrompt = `You are a medical intent extraction API. Analyze the user's query and extract the following in JSON format ONLY:
+{
+  "condition": "the medical condition mentioned (e.g. 'lung cancer'), or null",
+  "intent": "one of: conversational, clinical_trials, researchers, treatment, content_generation, format_conversion, research, medical_query",
+  "timeframe": "latest, recent, historical, or null"
+}
+Rules:
+- conversational: greetings, "who are you", etc.
+- clinical_trials: searching for trials, nct IDs.
+- researchers: looking for experts, authors, scientists.
+- treatment: drugs, therapies, surgeries, management.
+- research: general findings, papers, "what is the latest on...".
+- medical_query: symptoms, causes, "what is...".
+- content_generation: write, create, draft.
+- format_conversion: summarize, simplify, translate.
+
+Output nothing but the JSON object.`;
+
+    const response = await geminiClient.chat.completions.create({
+      model: GEMINI_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: query }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    
+    // Add promptIntent mapping
+    result.promptIntent = INTENT_TO_PROMPT_MAP[result.intent] || "general";
+    
+    logger.info(`[IntentService] Gemini intent extraction successful: ${JSON.stringify(result)}`);
+    return result;
+  } catch (err) {
+    logger.warn(`[IntentService] LLM intent extraction failed, falling back to rule-based: ${err.message}`);
+    return extractQueryIntentRuleBased(query);
+  }
+};
+
+// Keep backward-compatible export, but make it async
+const detectIntent = async (query) => {
+  const { promptIntent } = await extractQueryIntent(query);
   return { intent: promptIntent, confidence: "high" };
 };
 

@@ -34,7 +34,7 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
 
   // Step 2: Query understanding — extract condition + intent
   // If disease was passed explicitly, use it; otherwise extract from query
-  const { condition: extractedCondition, intent, promptIntent, timeframe } = extractQueryIntent(query);
+  const { condition: extractedCondition, intent, promptIntent, timeframe } = await extractQueryIntent(query);
   const condition = disease || extractedCondition;
   logger.info(`[RAG] Intent: ${intent} | Condition: ${condition || "unknown"} | Timeframe: ${timeframe || "any"}`);
 
@@ -49,7 +49,7 @@ const runRagPipeline = async ({ query, disease = null, patientName = null, locat
 
   if (!contextCondition && history.length > 0 && (isFollowUpIntent || isShortQuery)) {
     for (const msg of [...history].reverse()) {
-      const { condition: prevCondition } = extractQueryIntent(msg.content);
+      const { condition: prevCondition } = await extractQueryIntent(msg.content);
       if (prevCondition) {
         contextCondition = prevCondition;
         logger.info(`[RAG] No condition in query — using context condition from history: "${contextCondition}" (Reason: ${isFollowUpIntent ? "follow-up intent" : "short query"})`);
